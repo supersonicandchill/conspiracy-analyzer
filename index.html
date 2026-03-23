@@ -1,0 +1,802 @@
+<html><body><pre>import { useState, useEffect, useRef } from "react";
+
+const GLOBAL_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #08090d; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #12141a; }
+  ::-webkit-scrollbar-thumb { background: #2e3140; border-radius: 3px; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse-ring {
+    0%   { box-shadow: 0 0 0 0 rgba(139,92,246,0.55); }
+    70%  { box-shadow: 0 0 0 14px rgba(139,92,246,0); }
+    100% { box-shadow: 0 0 0 0 rgba(139,92,246,0); }
+  }
+  @keyframes scanline {
+    0%   { top: -10%; }
+    100% { top: 110%; }
+  }
+  @keyframes flicker {
+    0%,100% { opacity: 1; }
+    92% { opacity: 1; } 93% { opacity: 0.88; } 94% { opacity: 1; }
+    96% { opacity: 0.92; } 97% { opacity: 1; }
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  @keyframes popIn {
+    0%   { transform: scale(0.93) translateY(10px); opacity: 0; }
+    100% { transform: scale(1) translateY(0);        opacity: 1; }
+  }
+  @keyframes shimmer {
+    0%   { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
+  @keyframes glitch1 {
+    0%,100% { clip-path: inset(0 0 95% 0); transform: translate(-3px,0); }
+    20%     { clip-path: inset(30% 0 50% 0); transform: translate(3px,0); }
+    40%     { clip-path: inset(60% 0 20% 0); transform: translate(-3px,0); }
+    60%     { clip-path: inset(10% 0 80% 0); transform: translate(3px,0); }
+    80%     { clip-path: inset(80% 0 5% 0); transform: translate(-3px,0); }
+  }
+  @keyframes glitch2 {
+    0%,100% { clip-path: inset(50% 0 30% 0); transform: translate(3px,0); opacity:.7; }
+    30%     { clip-path: inset(20% 0 60% 0); transform: translate(-3px,0); }
+    70%     { clip-path: inset(70% 0 10% 0); transform: translate(3px,0); }
+  }
+  @keyframes staggerIn {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes vsFlash {
+    0%,100% { opacity:1; text-shadow: 0 0 12px rgba(250,204,21,0.6); }
+    50%     { opacity:0.7; text-shadow: 0 0 28px rgba(250,204,21,1); }
+  }
+
+  /* FIX #1: meter bars use CSS classes with data attributes instead of custom CSS props */
+  .meter-bar-fill { transition: width 0s; }
+
+  .fade-up  { animation: fadeUp 0.5s ease both; }
+  .flicker  { animation: flicker 4s infinite; }
+  .pop-in   { animation: popIn 0.45s cubic-bezier(0.22,1,0.36,1) both; }
+  .stagger  { animation: staggerIn 0.35s ease both; }
+  .vs-flash { animation: vsFlash 2s ease-in-out infinite; }
+
+  .glitch-wrap { position: relative; display: inline-block; }
+  .glitch-wrap::before, .glitch-wrap::after {
+    content: attr(data-text); position:absolute; top:0; left:0;
+    width:100%; height:100%; background:transparent;
+  }
+  .glitch-wrap::before { color:#f43f5e; animation: glitch1 3.5s infinite steps(1); }
+  .glitch-wrap::after  { color:#38bdf8; animation: glitch2 3.5s infinite steps(1); }
+
+  .pill-btn {
+    cursor:pointer; border:none; outline:none;
+    font-family:'Syne',sans-serif; font-weight:700;
+    border-radius:999px;
+    transition: transform 0.15s, filter 0.15s, box-shadow 0.15s;
+  }
+  .pill-btn:hover  { transform: translateY(-2px) scale(1.04); filter:brightness(1.13); }
+  .pill-btn:active { transform: scale(0.96); }
+  .pill-btn:disabled { cursor: not-allowed; }
+
+  .chip-hover { transition: background 0.18s, border-color 0.18s, transform 0.18s; }
+  .chip-hover:hover { transform: translateY(-2px); }
+
+  textarea:focus { outline:none; border-color:#7c3aed !important; box-shadow:0 0 0 3px rgba(124,58,237,0.22) !important; }
+`;
+
+const DEFAULT_THEORIES = [
+  "The moon landing was faked by NASA and Stanley Kubrick",
+  "Chemtrails are chemical agents sprayed for population control",
+  "The earth is flat and space agencies are hiding the truth",
+  "Birds aren't real — they're government surveillance drones",
+  "5G towers spread COVID-19",
+  "The Illuminati controls world governments from the shadows",
+  "JFK was killed by the CIA, not Lee Harvey Oswald alone",
+  "Area 51 holds crashed alien spacecraft",
+];
+
+const VERDICTS = [
+  { max:10,  emoji:"💀", label:"Dead on Arrival",        color:"#22c55e" },
+  { max:25,  emoji:"🙄", label:"Almost Certainly False",  color:"#4ade80" },
+  { max:40,  emoji:"🤨", label:"Very Unlikely",           color:"#a3e635" },
+  { max:55,  emoji:"🧐", label:"Questionable",            color:"#facc15" },
+  { max:70,  emoji:"😬", label:"Plausible but Unproven",  color:"#fb923c" },
+  { max:85,  emoji:"🚨", label:"Conspiracy Adjacent",     color:"#f87171" },
+  { max:101, emoji:"👁️", label:"Something's Going On…",   color:"#c084fc" },
+];
+
+const getVerdict = (pct) => VERDICTS.find(v => pct < v.max) || VERDICTS[VERDICTS.length - 1];
+const trendIcon  = (t)   => t === "rising" ? "📈" : t === "falling" ? "📉" : "➡️";
+
+// FIX #1: AnimatedBar uses a ref + requestAnimationFrame to set width
+// after mount, avoiding the CSS custom-property-on-inline-style React issue
+function AnimatedBar({ pct, color, glow }) {
+  const barRef = useRef(null);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    bar.style.width = "0%";
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (barRef.current) barRef.current.style.width = `${pct}%`;
+      });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [pct]);
+
+  return (
+    <div style={{ height:14, background:"#1a1f2e", borderRadius:999, overflow:"hidden", border:"1px solid #1e2535" }}>
+      <div ref={barRef} style={{
+        height:"100%", width:"0%", borderRadius:999,
+        background: color,
+        boxShadow: `0 0 10px ${glow}`,
+        transition:"width 1.3s cubic-bezier(0.22,1,0.36,1)",
+      }}/>
+    </div>
+  );
+}
+
+function Scanline() {
+  return (
+    <div style={{ position:"fixed", inset:0, pointerEvents:"none", zIndex:9999, overflow:"hidden" }}>
+      <div style={{
+        position:"absolute", left:0, right:0, height:"3px",
+        background:"linear-gradient(transparent,rgba(255,255,255,0.04),transparent)",
+        animation:"scanline 6s linear infinite",
+      }}/>
+      <div style={{
+        position:"absolute", inset:0,
+        background:"repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px)",
+      }}/>
+    </div>
+  );
+}
+
+function DualMeter({ truthPct }) {
+  const falsePct = 100 - truthPct;
+  const v = getVerdict(truthPct);
+  return (
+    <div style={{ margin:"22px 0 28px" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+        <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:12, color:"#94a3b8", textTransform:"uppercase", letterSpacing:"1.5px" }}>
+          Probability Assessment
+        </span>
+        <span style={{
+          background:v.color+"22", border:`1px solid ${v.color}44`,
+          color:v.color, borderRadius:999, padding:"3px 14px",
+          fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:12,
+        }}>{v.emoji} {v.label}</span>
+      </div>
+
+      <div style={{ marginBottom:12 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+          <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:12, color:"#22c55e", textTransform:"uppercase", letterSpacing:"1px" }}>
+            ✅ Probability of Truth
+          </span>
+          <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color:"#22c55e" }}>{truthPct}%</span>
+        </div>
+        <AnimatedBar pct={truthPct} color="linear-gradient(90deg,#16a34a,#22c55e,#4ade80)" glow="rgba(34,197,94,0.4)"/>
+      </div>
+
+      <div>
+        <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+          <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:12, color:"#ef4444", textTransform:"uppercase", letterSpacing:"1px" }}>
+            ❌ Probability of Falsehood
+          </span>
+          <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:18, color:"#ef4444" }}>{falsePct}%</span>
+        </div>
+        <AnimatedBar pct={falsePct} color="linear-gradient(90deg,#b91c1c,#ef4444,#f87171)" glow="rgba(239,68,68,0.4)"/>
+      </div>
+    </div>
+  );
+}
+
+function ArgItem({ text, side, delay }) {
+  const isFor = side === "for";
+  return (
+    <div className="stagger" style={{
+      animationDelay:`${delay}ms`,
+      display:"flex", gap:10, alignItems:"flex-start",
+      background: isFor ? "rgba(251,146,60,0.07)" : "rgba(56,189,248,0.07)",
+      border:`1px solid ${isFor ? "rgba(251,146,60,0.2)" : "rgba(56,189,248,0.2)"}`,
+      borderLeft:`3px solid ${isFor ? "#fb923c" : "#38bdf8"}`,
+      borderRadius:10, padding:"11px 14px", marginBottom:8,
+    }}>
+      <span style={{ fontSize:14, flexShrink:0, marginTop:2 }}>{isFor ? "🔴" : "🔵"}</span>
+      <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:14, color:"#cbd5e1", lineHeight:1.7, margin:0 }}>{text}</p>
+    </div>
+  );
+}
+
+function KnownItem({ text, delay }) {
+  return (
+    <div className="stagger" style={{
+      animationDelay:`${delay}ms`,
+      display:"flex", gap:10, alignItems:"flex-start",
+      background:"rgba(167,139,250,0.07)",
+      border:"1px solid rgba(167,139,250,0.18)",
+      borderLeft:"3px solid #a78bfa",
+      borderRadius:10, padding:"11px 14px", marginBottom:8,
+    }}>
+      <span style={{ fontSize:14, flexShrink:0, marginTop:2 }}>📌</span>
+      <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:14, color:"#cbd5e1", lineHeight:1.7, margin:0 }}>{text}</p>
+    </div>
+  );
+}
+
+function TheoryChip({ text, active, onSelect, onDelete, index }) {
+  const [hov, setHov] = useState(false);
+  return (
+    <div className="chip-hover" style={{
+      position:"relative",
+      background: active ? "rgba(124,58,237,0.16)" : hov ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.025)",
+      border:`1px solid ${active ? "rgba(124,58,237,0.55)" : "rgba(255,255,255,0.07)"}`,
+      borderRadius:12, padding:"12px 44px 12px 16px",
+      cursor:"pointer", marginBottom:8,
+    }}
+    onMouseEnter={() => setHov(true)}
+    onMouseLeave={() => setHov(false)}
+    onClick={() => onSelect(text)}
+    >
+      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:11, color:active?"#a78bfa":"#334155", minWidth:22 }}>
+          #{index+1}
+        </span>
+        <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:14, color:active?"#e2e8f0":"#94a3b8", lineHeight:1.5 }}>
+          {text}
+        </span>
+      </div>
+      {/* FIX #3: pass theory text to delete, not index, so array shifts don't cause mismatch */}
+      <button
+        onClick={e => { e.stopPropagation(); onDelete(text); }}
+        style={{
+          position:"absolute", right:10, top:"50%", transform:"translateY(-50%)",
+          background:"transparent", border:"none", cursor:"pointer",
+          color:hov?"#ef4444":"#1e293b", fontSize:20, lineHeight:1,
+          transition:"color 0.15s", padding:"4px",
+        }}
+        title="Remove"
+      >×</button>
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <div style={{ textAlign:"center", padding:"52px 20px" }}>
+      <div style={{
+        width:56, height:56, borderRadius:"50%",
+        border:"3px solid rgba(124,58,237,0.18)",
+        borderTop:"3px solid #7c3aed",
+        animation:"spin 0.85s linear infinite",
+        margin:"0 auto 18px",
+      }}/>
+      <p style={{
+        fontFamily:"'Syne',sans-serif", fontWeight:800,
+        background:"linear-gradient(90deg,#7c3aed,#38bdf8,#7c3aed)",
+        backgroundSize:"200% auto", WebkitBackgroundClip:"text",
+        WebkitTextFillColor:"transparent",
+        animation:"shimmer 2s linear infinite",
+        fontSize:14, letterSpacing:"1.5px",
+      }}>ACCESSING CLASSIFIED FILES…</p>
+      <p style={{ fontFamily:"'DM Sans',sans-serif", color:"#334155", fontSize:12, marginTop:6, fontStyle:"italic" }}>
+        Cross-referencing 47 redacted government databases
+      </p>
+    </div>
+  );
+}
+
+// FIX #2: isSmall prop instead of 'small' to avoid unknown DOM attribute warning
+function Disclaimer({ isSmall }) {
+  return (
+    <div style={{
+      display:"flex", alignItems:"flex-start", gap:10,
+      background:"rgba(250,204,21,0.05)",
+      border:"1px solid rgba(250,204,21,0.18)",
+      borderRadius:10, padding: isSmall ? "8px 14px" : "12px 16px",
+      marginBottom: isSmall ? 0 : 20,
+    }}>
+      <span style={{ fontSize: isSmall ? 14 : 18, flexShrink:0, marginTop:1 }}>🎭</span>
+      <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize: isSmall ? 11 : 12, color:"#713f12", lineHeight:1.6, fontStyle: isSmall ? "italic" : "normal" }}>
+        {isSmall
+          ? "AI-generated for entertainment & curiosity only. Not a substitute for verified journalism or research."
+          : <><strong style={{ color:"#facc15" }}>For entertainment &amp; curiosity purposes only.</strong> This analysis is AI-generated and does not constitute factual reporting or professional research. Always verify claims through reputable primary sources.</>
+        }
+      </p>
+    </div>
+  );
+}
+
+// FIX #4: Robust JSON parser that tries to extract JSON even from messy AI output
+function safeParseJSON(raw) {
+  if (!raw) throw new Error("Empty response");
+  // Strip markdown fences
+  let cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+  // Try direct parse first
+  try { return JSON.parse(cleaned); } catch (_) {}
+  // Try to extract first {...} block
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return JSON.parse(match[0]); } catch (_) {}
+  }
+  throw new Error("Could not parse response as JSON");
+}
+
+export default function ConspiracyAnalyzer() {
+  const [theories, setTheories]         = useState(DEFAULT_THEORIES);
+  const [selected, setSelected]         = useState("");
+  const [customInput, setCustomInput]   = useState("");
+  const [result, setResult]             = useState(null);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState("");
+  const [activeTheory, setActiveTheory] = useState(null);
+  const [tab, setTab]                   = useState("list");
+  const [history, setHistory]           = useState([]);
+  const resultRef = useRef(null);
+
+  useEffect(() => {
+    const s = document.createElement("style");
+    s.textContent = GLOBAL_CSS;
+    document.head.appendChild(s);
+    return () => document.head.removeChild(s);
+  }, []);
+
+  const analyze = async (theoryText) => {
+    const target = (theoryText || selected).trim();
+    if (!target) return;
+    setLoading(true); setResult(null); setError(""); setActiveTheory(target);
+
+    const system = `You are a balanced, sharp, impartial conspiracy theory analyst. You present BOTH sides with genuine intellectual fairness — steel-manning the believers' best arguments AND the skeptics' best counter-arguments — before summarizing only what is verifiably documented. Think of yourself as a fair debate moderator who has read everything on the topic.
+
+You do NOT promote conspiracy theories. You do NOT mock believers unfairly. You present the strongest version of each side's argument based on actual evidence or reasoning people use.
+
+Respond ONLY with a valid JSON object. No markdown, no backtick fences, no preamble, no trailing text.
+
+{
+  "title": "Punchy title, 6 words max",
+  "summary": "2-3 sentences summarizing what the theory claims and why people believe it",
+  "believers_case": [
+    "The strongest, steel-manned argument believers make — based on evidence, gaps in official record, or documented anomalies",
+    "Second strongest believers argument",
+    "Third believers argument"
+  ],
+  "skeptics_case": [
+    "The strongest counter-argument skeptics make based on documented evidence or scientific consensus",
+    "Second skeptic argument",
+    "Third skeptic argument"
+  ],
+  "what_we_know": [
+    "A verified, documented, non-contested fact directly relevant to this topic",
+    "Second verified fact",
+    "Third verified fact"
+  ],
+  "truth_pct": <integer 0-100 representing genuine evidentiary probability the core claim has merit>,
+  "verdict": "2-3 sentences of honest, dry-wit closing verdict based only on evidence. Not preachy. Not condescending.",
+  "fun_fact": "One surprising little-known related fact that most people on either side do not know",
+  "trend": "rising|falling|stable"
+}
+
+truth_pct guide: 0-15=demonstrably false with clear evidence against, 16-35=very unlikely, 36-55=mixed or unverifiable evidence, 56-75=some credible documented basis but unproven, 76-100=significant documented evidence. Be accurate. Steelman both sides genuinely.`;
+
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:1200,
+          system,
+          messages:[{ role:"user", content:`Analyze this conspiracy theory: "${target}"` }],
+        }),
+      });
+      if (!resp.ok) throw new Error(`API error ${resp.status}`);
+      const data   = await resp.json();
+      const raw    = data.content?.find(b => b.type === "text")?.text || "";
+      // FIX #4: use robust parser
+      const parsed = safeParseJSON(raw);
+
+      // Validate required fields exist, supply fallbacks if not
+      const safe = {
+        title:          parsed.title          || "Unknown Theory",
+        summary:        parsed.summary        || "",
+        believers_case: Array.isArray(parsed.believers_case) ? parsed.believers_case : [],
+        skeptics_case:  Array.isArray(parsed.skeptics_case)  ? parsed.skeptics_case  : [],
+        what_we_know:   Array.isArray(parsed.what_we_know)   ? parsed.what_we_know   : [],
+        truth_pct:      typeof parsed.truth_pct === "number"  ? Math.min(100, Math.max(0, parsed.truth_pct)) : 50,
+        verdict:        parsed.verdict        || "",
+        fun_fact:       parsed.fun_fact       || "",
+        trend:          ["rising","falling","stable"].includes(parsed.trend) ? parsed.trend : "stable",
+      };
+
+      setResult(safe);
+      setHistory(h => {
+        const idx = h.findIndex(e => e.theory === target);
+        const entry = { theory:target, pct:safe.truth_pct, trend:safe.trend, time:Date.now() };
+        if (idx >= 0) { const u = [...h]; u[idx] = entry; return u; }
+        return [entry, ...h].slice(0, 20);
+      });
+      // FIX #5: guard against unmounted ref
+      setTimeout(() => {
+        if (resultRef.current) {
+          resultRef.current.scrollIntoView({ behavior:"smooth", block:"start" });
+        }
+      }, 150);
+    } catch(err) {
+      setError("Analysis failed — the deep state may be interfering. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addTheory = () => {
+    const t = customInput.trim();
+    if (!t || theories.includes(t)) return;
+    setTheories(prev => [t, ...prev]);
+    setSelected(t); setCustomInput(""); setTab("list");
+  };
+
+  // FIX #3: delete by value, not index, so array shifts don't cause mismatch
+  const deleteTheory = (theoryText) => {
+    if (theoryText === activeTheory) {
+      setResult(null); setActiveTheory(null); setSelected("");
+    }
+    if (theoryText === selected) setSelected("");
+    setTheories(prev => prev.filter(t => t !== theoryText));
+  };
+
+  return (
+    <div className="flicker" style={{ fontFamily:"'DM Sans',sans-serif", minHeight:"100vh", background:"#08090d", color:"#e2e8f0" }}>
+      <Scanline/>
+
+      {/* ── HEADER ── */}
+      <div style={{
+        background:"linear-gradient(180deg,rgba(124,58,237,0.13) 0%,transparent 100%)",
+        borderBottom:"1px solid rgba(255,255,255,0.05)",
+        padding:"36px 20px 26px", textAlign:"center",
+      }}>
+        <div className="glitch-wrap" data-text="CONSPIRACY.EXE" style={{
+          fontFamily:"'Syne',sans-serif", fontWeight:800,
+          fontSize:"clamp(26px,6vw,50px)", color:"#f1f5f9",
+          letterSpacing:"-1px", display:"block", marginBottom:10,
+        }}>CONSPIRACY.EXE</div>
+        <p style={{ fontFamily:"'DM Sans',sans-serif", color:"#475569", fontSize:14, maxWidth:500, margin:"0 auto", fontStyle:"italic" }}>
+          Both sides. Real evidence. You decide. &nbsp;·&nbsp;
+          <span style={{ color:"#facc15" }}> For entertainment purposes only.</span>
+        </p>
+        <div style={{ display:"flex", justifyContent:"center", gap:8, marginTop:14, flexWrap:"wrap" }}>
+          {["🔴 Believers' Case","🔵 Skeptics' Case","📌 What We Know","📊 Dual Probability","📈 Trends"].map(tag => (
+            <span key={tag} style={{
+              background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.07)",
+              borderRadius:999, padding:"4px 12px",
+              fontSize:11, color:"#475569", fontFamily:"'Syne',sans-serif", fontWeight:700,
+            }}>{tag}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* ── LAYOUT ── */}
+      <div style={{
+        maxWidth:1120, margin:"0 auto", padding:"26px 16px",
+        display:"grid", gridTemplateColumns:"minmax(250px,310px) 1fr",
+        gap:24, alignItems:"start",
+      }}>
+
+        {/* ── LEFT PANEL ── */}
+        <div>
+          {/* Tab switcher */}
+          <div style={{
+            display:"grid", gridTemplateColumns:"1fr 1fr",
+            background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)",
+            borderRadius:12, padding:4, marginBottom:16,
+          }}>
+            {["list","add"].map(t => (
+              <button key={t} className="pill-btn" onClick={() => setTab(t)} style={{
+                padding:"9px 0", fontSize:13, borderRadius:9,
+                background: tab===t ? "rgba(124,58,237,0.7)" : "transparent",
+                color: tab===t ? "#fff" : "#475569",
+                boxShadow: tab===t ? "0 2px 12px rgba(124,58,237,0.4)" : "none",
+                transition:"background 0.2s, color 0.2s",
+              }}>
+                {t==="list" ? "📋 Theories" : "➕ Add New"}
+              </button>
+            ))}
+          </div>
+
+          {tab==="list" && (
+            <>
+              <p style={{ fontSize:11, color:"#334155", fontFamily:"'Syne',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"1px", marginBottom:12 }}>
+                {theories.length} Theories Loaded
+              </p>
+              <div style={{ maxHeight:"58vh", overflowY:"auto", paddingRight:4 }}>
+                {theories.map((t, i) => (
+                  <TheoryChip
+                    key={t}
+                    text={t}
+                    index={i}
+                    active={t === activeTheory}
+                    onSelect={txt => { setSelected(txt); setResult(null); setActiveTheory(null); }}
+                    onDelete={deleteTheory}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
+          {tab==="add" && (
+            <div className="fade-up">
+              <p style={{ fontSize:13, color:"#475569", marginBottom:12, lineHeight:1.7 }}>
+                Type any conspiracy theory. The more specific, the better the analysis.
+              </p>
+              <textarea
+                value={customInput}
+                onChange={e => setCustomInput(e.target.value)}
+                placeholder="e.g. The Titanic was deliberately sunk for insurance fraud..."
+                rows={5}
+                style={{
+                  width:"100%", background:"#12141a", color:"#e2e8f0",
+                  border:"1px solid #2a2d3e", borderRadius:12,
+                  padding:"12px 14px", fontSize:14, resize:"vertical",
+                  fontFamily:"'DM Sans',sans-serif", lineHeight:1.6,
+                  transition:"border-color 0.2s, box-shadow 0.2s",
+                }}
+                onKeyDown={e => { if (e.key==="Enter" && e.ctrlKey) addTheory(); }}
+              />
+              <button className="pill-btn" onClick={addTheory} disabled={!customInput.trim()} style={{
+                marginTop:12, width:"100%", padding:"13px",
+                background: customInput.trim() ? "linear-gradient(135deg,#7c3aed,#4f46e5)" : "#1a1f2e",
+                color: customInput.trim() ? "#fff" : "#334155",
+                fontSize:14, borderRadius:12,
+                boxShadow: customInput.trim() ? "0 4px 20px rgba(124,58,237,0.4)" : "none",
+                transition:"all 0.2s",
+              }}>
+                ➕ Add to List
+              </button>
+            </div>
+          )}
+
+          {/* History */}
+          {history.length > 0 && (
+            <div style={{ marginTop:24 }}>
+              <p style={{ fontSize:11, color:"#334155", fontFamily:"'Syne',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"1px", marginBottom:10 }}>
+                📈 Analysis History
+              </p>
+              {history.slice(0,7).map((h, i) => {
+                const v = getVerdict(h.pct);
+                return (
+                  <div key={i} className="chip-hover" style={{
+                    display:"flex", alignItems:"center", justifyContent:"space-between",
+                    background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.05)",
+                    borderRadius:10, padding:"8px 12px", marginBottom:6, cursor:"pointer",
+                  }} onClick={() => { setSelected(h.theory); setActiveTheory(null); setResult(null); setTab("list"); }}>
+                    <span style={{ fontSize:12, color:"#475569", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginRight:8 }}>
+                      {h.theory.length>30 ? h.theory.slice(0,30)+"…" : h.theory}
+                    </span>
+                    <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                      <span style={{ fontSize:11 }}>{trendIcon(h.trend)}</span>
+                      <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:12, color:v.color }}>{h.pct}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── RIGHT PANEL ── */}
+        <div>
+          {/* Selected + Analyze button */}
+          {selected && !loading && (
+            <div className="fade-up" style={{
+              background:"rgba(124,58,237,0.09)", border:"1px solid rgba(124,58,237,0.28)",
+              borderRadius:16, padding:"18px 20px", marginBottom:20,
+              display:"flex", alignItems:"center", justifyContent:"space-between", gap:16, flexWrap:"wrap",
+            }}>
+              <div style={{ flex:1 }}>
+                <p style={{ fontSize:11, color:"#7c3aed", fontFamily:"'Syne',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"1px", marginBottom:5 }}>
+                  Theory Selected
+                </p>
+                <p style={{ fontSize:15, color:"#e2e8f0", lineHeight:1.5 }}>{selected}</p>
+              </div>
+              <button className="pill-btn" onClick={() => analyze(selected)} style={{
+                padding:"13px 30px",
+                background:"linear-gradient(135deg,#7c3aed,#4f46e5)",
+                color:"#fff", fontSize:15,
+                boxShadow:"0 4px 24px rgba(124,58,237,0.5)",
+                animation:"pulse-ring 2.5s infinite",
+                whiteSpace:"nowrap",
+              }}>🔍 Analyze It</button>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!selected && !loading && !result && (
+            <div style={{
+              textAlign:"center", padding:"64px 20px",
+              background:"rgba(255,255,255,0.015)",
+              border:"1px dashed rgba(255,255,255,0.06)",
+              borderRadius:20,
+            }}>
+              <div style={{ fontSize:60, marginBottom:16 }}>👁️</div>
+              <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:18, color:"#1e293b", marginBottom:8 }}>
+                They're watching.
+              </p>
+              <p style={{ fontSize:14, color:"#1e293b" }}>
+                Select a theory from the list — or add your own.
+              </p>
+            </div>
+          )}
+
+          {loading && <Spinner/>}
+
+          {error && (
+            <div style={{
+              background:"rgba(239,68,68,0.09)", border:"1px solid rgba(239,68,68,0.28)",
+              borderRadius:14, padding:20, color:"#fca5a5", fontSize:14,
+            }}>⚠️ {error}</div>
+          )}
+
+          {/* ── RESULT CARD ── */}
+          {result && !loading && (
+            <div ref={resultRef} className="pop-in" style={{
+              background:"#0e1018", border:"1px solid rgba(255,255,255,0.07)",
+              borderRadius:20, overflow:"hidden",
+              boxShadow:"0 8px 56px rgba(0,0,0,0.65)",
+            }}>
+              {/* Header */}
+              <div style={{
+                background:"linear-gradient(135deg,rgba(124,58,237,0.18),rgba(56,189,248,0.08))",
+                borderBottom:"1px solid rgba(255,255,255,0.06)",
+                padding:"22px 26px",
+              }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap", marginBottom:10 }}>
+                  <div>
+                    <span style={{ fontSize:11, color:"#7c3aed", fontFamily:"'Syne',sans-serif", fontWeight:700, textTransform:"uppercase", letterSpacing:"1px", display:"block", marginBottom:5 }}>
+                      Analysis Complete
+                    </span>
+                    <h2 style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:22, color:"#f1f5f9", lineHeight:1.2 }}>
+                      {result.title}
+                    </h2>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+                    <span style={{ fontSize:14 }}>{trendIcon(result.trend)}</span>
+                    <span style={{ fontFamily:"'DM Sans',sans-serif", fontSize:13, color:"#475569", fontStyle:"italic" }}>
+                      {result.trend==="rising" ? "Belief rising" : result.trend==="falling" ? "Belief fading" : "Belief stable"}
+                    </span>
+                  </div>
+                </div>
+                <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:14, color:"#94a3b8", lineHeight:1.8 }}>
+                  {result.summary}
+                </p>
+              </div>
+
+              <div style={{ padding:"24px 26px" }}>
+                <Disclaimer/>
+                <DualMeter truthPct={result.truth_pct}/>
+
+                {/* Believers vs Skeptics */}
+                <div style={{ position:"relative" }}>
+                  <div style={{
+                    position:"absolute", top:16, left:"50%",
+                    transform:"translateX(-50%)", zIndex:2, pointerEvents:"none",
+                  }}>
+                    <div className="vs-flash" style={{
+                      fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:14,
+                      color:"#facc15", background:"#0e1018",
+                      border:"2px solid rgba(250,204,21,0.3)",
+                      borderRadius:"50%", width:36, height:36,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                    }}>VS</div>
+                  </div>
+
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:24 }}>
+                    <div>
+                      <div style={{
+                        display:"flex", alignItems:"center", gap:8, marginBottom:12,
+                        padding:"8px 14px",
+                        background:"rgba(251,146,60,0.09)", border:"1px solid rgba(251,146,60,0.22)",
+                        borderRadius:10,
+                      }}>
+                        <span style={{ fontSize:16 }}>🔴</span>
+                        <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:11, color:"#fb923c", textTransform:"uppercase", letterSpacing:"1px" }}>
+                          Believers' Case
+                        </span>
+                      </div>
+                      {result.believers_case.map((arg, i) => (
+                        <ArgItem key={i} text={arg} side="for" delay={i*90}/>
+                      ))}
+                    </div>
+
+                    <div>
+                      <div style={{
+                        display:"flex", alignItems:"center", gap:8, marginBottom:12,
+                        padding:"8px 14px",
+                        background:"rgba(56,189,248,0.09)", border:"1px solid rgba(56,189,248,0.22)",
+                        borderRadius:10,
+                      }}>
+                        <span style={{ fontSize:16 }}>🔵</span>
+                        <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:11, color:"#38bdf8", textTransform:"uppercase", letterSpacing:"1px" }}>
+                          Skeptics' Case
+                        </span>
+                      </div>
+                      {result.skeptics_case.map((arg, i) => (
+                        <ArgItem key={i} text={arg} side="against" delay={i*90}/>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* What We Know */}
+                <div style={{ marginBottom:24 }}>
+                  <div style={{
+                    display:"flex", alignItems:"center", gap:8, marginBottom:12,
+                    padding:"8px 16px",
+                    background:"rgba(167,139,250,0.09)", border:"1px solid rgba(167,139,250,0.22)",
+                    borderRadius:10,
+                  }}>
+                    <span style={{ fontSize:16 }}>📌</span>
+                    <span style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:11, color:"#a78bfa", textTransform:"uppercase", letterSpacing:"1px" }}>
+                      What We Actually Know — Verified Facts Only
+                    </span>
+                  </div>
+                  {result.what_we_know.map((f, i) => (
+                    <KnownItem key={i} text={f} delay={i*80}/>
+                  ))}
+                </div>
+
+                {/* Final Verdict */}
+                <div style={{
+                  background:"rgba(124,58,237,0.08)", border:"1px solid rgba(124,58,237,0.2)",
+                  borderRadius:14, padding:"18px 20px", marginBottom:14,
+                }}>
+                  <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:11, color:"#a78bfa", textTransform:"uppercase", letterSpacing:"1px", marginBottom:8 }}>
+                    🧾 Final Verdict
+                  </p>
+                  <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:14, color:"#cbd5e1", lineHeight:1.85 }}>
+                    {result.verdict}
+                  </p>
+                </div>
+
+                {/* Fun Fact */}
+                <div style={{
+                  background:"rgba(56,189,248,0.05)", border:"1px solid rgba(56,189,248,0.14)",
+                  borderRadius:14, padding:"14px 18px", marginBottom:18,
+                  display:"flex", gap:12, alignItems:"flex-start",
+                }}>
+                  <span style={{ fontSize:20, flexShrink:0 }}>💡</span>
+                  <div>
+                    <p style={{ fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:11, color:"#38bdf8", textTransform:"uppercase", letterSpacing:"1px", marginBottom:5 }}>
+                      Did You Know?
+                    </p>
+                    <p style={{ fontFamily:"'DM Sans',sans-serif", fontSize:14, color:"#94a3b8", lineHeight:1.75 }}>
+                      {result.fun_fact}
+                    </p>
+                  </div>
+                </div>
+
+                <Disclaimer isSmall/>
+
+                <button className="pill-btn" onClick={() => { setResult(null); setActiveTheory(null); setSelected(""); setTab("list"); }} style={{
+                  marginTop:16, width:"100%", padding:"13px",
+                  background:"rgba(255,255,255,0.04)",
+                  border:"1px solid rgba(255,255,255,0.09)",
+                  color:"#475569", fontSize:14, borderRadius:12,
+                }}>
+                  ← Analyze Another Theory
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+</pre></body></html>
